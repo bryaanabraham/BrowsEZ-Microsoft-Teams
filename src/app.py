@@ -183,43 +183,145 @@ Always prioritize accuracy, security, and minimal back-and-forth. Act like a pro
 Current date and time (IST) is: {now_ist    }
 """
 
+import json
+from typing import Any, Union
+
 def render_response(
-    data,
-    max_total_chars=25000,
-    max_rows=40,
-    max_cell_width=100
-):
+    data: Union[dict, list, str],
+    max_total_chars: int = 25000,
+    max_rows: int = 200,          # bumped default to be practical for markdown
+    max_cell_width: int = 120
+) -> str:
     """
-    Input:  Function takes in raw API reponse (JSON) in string format.
-            Function will parse JSON to take care of very large inputs and create a smaller JSON (subset) 
-            This will happen only if length of dictionary is more than max rows or if total chars in dictions is more tha max chars
-                EG: input: 
-                    {
-                        "ABDCSHDB" : "KHGKXCVBJKIUYFKUGLYGAOSDGFYBIEURGNFQIURGFBPURFGNPQRGQPR"
-                        "time":"1345678"
-                        ...
-                    }
-                    middleware output:
-                    {
-                        "ABDCSHDB" : "Data to large to display"
-                        "time":"1345678"
-                    }
-                    Remaining rows truncated due to excessive length
-            Truncated output will go to and LLM for analysis and extraction of relevant information
-            
-    Output: LM will analyse and tabulate information in MS teams format as string and return it
-            EG: 
-                Input: {'text': '{\n  "errorCode": "00",\n  "errorMsg": "SUCCESS",\n  "response": {\n    "apiStatus": {\n      "errorCode": "00",\n      "npciErrorCode": "",\n      "errorDescription": "SUCCESS",\n      "txnStatus": 2\n    },\n    "balances": {\n      "data": {\n        "customerId": "240107785",\n        "accountRelationship": "A",\n        "accountId": "242000367824",\n        "nickName": "MOBILEWARE",\n        "name": "MOBILEWARE TECHNOLOGIES PRIVATE LIMITED",\n        "branchId": "",\n        "emailAddress": "",\n        "product": {\n          "group": "DDA",\n          "type": "2003",\n          "description": "CURRENT ACCOUNT - SUPREME"\n        },\n        "creationDateTime": "15/02/2024",\n        "chequeBookRequested": "N",\n        "modeOfOperation": "59",\n        "status": "Active",\n        "statusCode": "0",\n        "minBalance": "",\n        "postalAddress": "",\n        "balance": [\n          {\n            "amount": "5675694.35",\n            "currency": "INR",\n            "type": "AvailableBalance"\n          },\n          {\n            "amount": "5675694.35",\n            "currency": "INR",\n            "type": "LedgerBalance"\n          },\n          {\n            "amount": "5675694.35",\n            "currency": "INR",\n            "type": "NETBalance"\n          },\n          {\n            "amount": "5675694.35",\n            "currency": "INR",\n            "type": "HoldAmount"\n          },\n          {\n            "currency": "INR",\n            "type": "UnclearFunds"\n          }\n        ],\n        "transactionCode": "00",\n        "rdinstallmentNumber": "",\n        "rdinstallmentNextDate": ""\n      }\n    }\n  },\n  "txnId": "J2602241522572713351544813",\n  "token": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiIzIiwic3ViIjoidHJhbnMiLCJpc3MiOiJUUkFOU1hUIiwiVVNFUklEIjoiNTA1IiwiaWF0IjoxNzcxOTI2Nzc3LCJleHAiOjE3NzE5Mjc2NzcsIlNFU1NJT05JRCI6IjU2ODY0OTYzIiwiUFJPRExJU1QiOltdLCJTRUNSRVQiOiJIZ1BPUm5aYWx5OU1NMzFlSkxlc2Y2WFU3d3E3WVV4VCIsIkVOViI6InByb2QifQ.DF8sp-rddP4ZCHoa-uDbiCQ-gled1WX-F5Y1qJBwp8r6W5fXQwCnRF42yafhXnY5wlJfcy2Lf33_V7DVXAfE6w"\n}'}
-                Output: 
-                | amount | currency | type |
-                | --- | --- | --- |
-                | 5675694.35 | INR | AvailableBalance |
-                | 5675694.35 | INR | LedgerBalance |
-                | 5675694.35 | INR | NETBalance |
-                | 5675694.35 | INR | HoldAmount |
-                |  | INR | UnclearFunds |
-    """    
-    return 
+    Convert raw API responses (dict/list/JSON-string) into grouped Markdown.
+    - Accepts dict/list directly, or {"text": "...json..."} or {"text": <dict/list>}
+    - Truncates large values and very long outputs
+    - Renders lists of dicts as Markdown tables
+    - Recursively groups content at all nesting depths
+    """
+
+    # -------------------------------
+    # 1) Normalize input into a Python object
+    # -------------------------------
+    def _to_obj(x: Any) -> Any:
+        # Case A: {"text": ...}
+        if isinstance(x, dict) and "text" in x:
+            inner = x["text"]
+            # If it's already a dict/list, use it
+            if isinstance(inner, (dict, list)):
+                return inner
+            # If it's a string, try to parse JSON
+            if isinstance(inner, str):
+                try:
+                    return json.loads(inner)
+                except Exception:
+                    # If not valid JSON, return the raw string as a leaf
+                    return {"text": inner}
+            # Fallback
+            return {"text": str(inner)}
+
+        # Case B: Raw dict/list passed directly
+        if isinstance(x, (dict, list)):
+            return x
+
+        # Case C: Raw JSON string
+        if isinstance(x, str):
+            try:
+                return json.loads(x)
+            except Exception:
+                # Non-JSON string: present it as-is
+                return {"text": x}
+
+        # Anything else → stringify
+        return {"text": str(x)}
+
+    obj = _to_obj(data)
+
+    # -------------------------------
+    # 2) Truncation helpers
+    # -------------------------------
+    def _truncate_cell(v: Any) -> str:
+        s = "" if v is None else str(v)
+        if len(s) > max_cell_width:
+            return s[:max_cell_width] + "...(truncated)"
+        return s
+
+    # -------------------------------
+    # 3) Table builder for list-of-dicts
+    # -------------------------------
+    def _make_table(records: list) -> Union[str, None]:
+        if not isinstance(records, list) or not records:
+            return None
+        if not all(isinstance(r, dict) for r in records):
+            return None
+
+        # collect union of keys across rows (stable order: as discovered)
+        seen_cols = []
+        for r in records:
+            for k in r.keys():
+                if k not in seen_cols:
+                    seen_cols.append(k)
+
+        header = "| " + " | ".join(seen_cols) + " |\n"
+        sep = "| " + " | ".join(["---"] * len(seen_cols)) + " |\n"
+        rows = []
+        for r in records:
+            row = [_truncate_cell(r.get(c, "")) for c in seen_cols]
+            rows.append("| " + " | ".join(row) + " |")
+        return header + sep + "\n".join(rows) + "\n"
+
+    # -------------------------------
+    # 4) Recursive renderer to Markdown
+    # -------------------------------
+    def _walk(node: Any, level: int = 0, name: str = "") -> str:
+        md = []
+        h = max(1, min(6, level + 1))
+
+        if isinstance(node, dict):
+            if name:
+                md.append(f"\n{'#' * h} {name}")
+            for k, v in node.items():
+                md.append(_walk(v, level + 1, k))
+
+        elif isinstance(node, list):
+            # If list of dicts → table
+            tbl = _make_table(node)
+            if tbl is not None:
+                if name:
+                    md.append(f"\n{'#' * h} {name}")
+                md.append(tbl)
+            else:
+                # scalar/mixed list → render each item
+                if name:
+                    md.append(f"\n{'#' * h} {name}")
+                for i, item in enumerate(node):
+                    md.append(_walk(item, level + 1, f"{name}[{i}]"))
+
+        else:
+            # leaf value
+            val = _truncate_cell(node)
+            if name is None:
+                # anonymous root scalar
+                md.append(f"\n{'#' * h} value\n{val}")
+            else:
+                md.append(f"\n{'#' * h} {name}: {val}")
+
+        return "\n".join(part for part in md if part)
+
+    markdown = _walk(obj)
+
+    # -------------------------------
+    # 5) Global output truncation
+    # -------------------------------
+    if len(markdown) > max_total_chars:
+        markdown = markdown[:max_total_chars] + "\n\n...(OUTPUT TRUNCATED: size limit)..."
+
+    # Limit lines (rows)
+    lines = markdown.splitlines()
+    if len(lines) > max_rows:
+        markdown = "\n".join(lines[:max_rows]) + "\n...(OUTPUT TRUNCATED: row limit)..."
+
+    return markdown
     
 
 
@@ -246,11 +348,13 @@ def call_llm(query: str) -> str:
                 try:
                     tool_result = execute_tool(tool_name, arguments)
                     print(f"Tool Result: \n{tool_result}")
-                    
-                    data = tool_result.get("text")
-                    btfd_result = render_response(data)
-                    print(f"Beautified Tool Result: \n{btfd_result}")
-                    return btfd_result
+
+                    btfd_result = render_response(tool_result)
+                    if btfd_result:
+                        print(f"Beautified Tool Result: \n{btfd_result}")
+                        return btfd_result
+                    else:
+                        return "Looks like the backend didn't send anything. Can you check the parameters when you get a sec?"
                 except Exception:
                     return "There was an error executing your request."
 

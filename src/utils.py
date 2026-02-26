@@ -180,20 +180,19 @@ def maintain_context_limit(
 ) -> str:
     ''' 
     1. Takes in data (string or API response) and converts to JSON.
-    2. Caps total rows/fields at max_rows.
-    3. Truncates any field value above max_field_value (replaces with "output too large to display").
+    2. Caps total rows at max_rows.
+    3. Truncates any field value above max_field_value (keeps original but cuts it).
     4. Truncates overall output if total chars > max_total_chars.
     5. Returns reduced JSON as a string.
     '''
 
-    # Step 1 — convert input to JSON-safe data
     try:
         if isinstance(data, str):
             json_data = json.loads(data)
         else:
             json_data = data
     except Exception:
-        return "An error occured in processing the API response"
+        return "An error occurred in processing the API response"
 
     # Ensure we are always working with a list for max_rows logic
     if isinstance(json_data, dict):
@@ -207,18 +206,15 @@ def maintain_context_limit(
     if len(items) > max_rows:
         items = items[:max_rows]
 
-    # Step 3 — Truncate long field values
+    # Step 3 — Truncate long field values (keep original, just slice)
     def truncate_values(obj):
         if isinstance(obj, dict):
-            return {
-                k: truncate_values(v)
-                for k, v in obj.items()
-            }
+            return {k: truncate_values(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [truncate_values(v) for v in obj]
         elif isinstance(obj, str):
             if len(obj) > max_field_value:
-                return "output too large to display"
+                return obj[:max_field_value] + "...(truncated)"
             return obj
         else:
             return obj
@@ -229,8 +225,7 @@ def maintain_context_limit(
     output = json.dumps(items, indent=2)
 
     if len(output) > max_total_chars:
-        truncated = output[:max_total_chars] + "\n... output truncated ..."
-        return truncated
+        output = output[:max_total_chars] + "\n... output truncated ..."
 
     return output
 

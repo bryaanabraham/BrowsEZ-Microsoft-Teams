@@ -14,11 +14,11 @@
         "outline": "BrowsEZ_32.jpg"
     },
     "name": {
-        "short": "BrowsEZ-MS-Bot${{APP_NAME_SUFFIX}}",
-        "full": "full name for BrowsEZ-MS-Bot"
+        "short": "BrowsEZ${{APP_NAME_SUFFIX}}",
+        "full": "BrowsEZ: Your AI teammate"
     },
     "description": {
-        "short": "BrowsEZ: your AI teammate for tools and enterprise queries.",
+        "short": "Your AI teammate for tools and enterprise queries.",
         "full": "BrowsEZ acts like a digital teammate inside Microsoft Teams, allowing users to execute tools, retrieve enterprise data, and trigger workflows through simple conversation. Designed to integrate with your existing cloud or on-prem infrastructure, Browsez provides intelligent responses without requiring any change to your current environment."
     },
     "accentColor": "#FFFFFF",
@@ -41,6 +41,10 @@
                       {
                           "title": "Who are you?",
                           "description": "Ask About me"
+                      },
+                      {
+                        "title": "What's my bank balance?",
+                        "description": "Ask me something"
                       }
                   ]
                 }

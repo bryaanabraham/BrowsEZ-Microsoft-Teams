@@ -8,7 +8,6 @@ from typing import Any, Dict, Union
 from azure.identity import ManagedIdentityCredential
 from microsoft.teams.api import MessageActivity, TypingActivityInput
 from microsoft.teams.apps import ActivityContext, App
-from config import Config
 from openai import OpenAI
 
 from dotenv import load_dotenv
@@ -104,22 +103,7 @@ def call_llm(query: str) -> str:
         print(f"Error occurred: {e}")
         return f"Something went wrong while processing your request.\n\nError: {e}"
     
-config = Config()
-
-def create_token_factory():
-    def get_token(scopes, tenant_id=None):
-        credential = ManagedIdentityCredential(client_id=config.APP_ID)
-        if isinstance(scopes, str):
-            scopes_list = [scopes]
-        else:
-            scopes_list = scopes
-        token = credential.get_token(*scopes_list)
-        return token.token
-    return get_token
-
-app = App(
-    token=create_token_factory() if config.APP_TYPE == "UserAssignedMsi" else None
-)
+app = App()
 
 @app.on_message_pattern(re.compile(r"Hello|Hi"))
 async def handle_greeting(ctx: ActivityContext[MessageActivity]) -> None:

@@ -9,7 +9,7 @@ from azure.identity import ManagedIdentityCredential
 from microsoft.teams.api import MessageActivity, TypingActivityInput
 from microsoft.teams.apps import ActivityContext, App
 from openai import OpenAI
-
+import pandas as pd
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -21,7 +21,8 @@ def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"Tool '{tool_name}' not implemented.")
     return tool.run(arguments)
 
-
+DATAFRAME = pd.read_csv("api_pricing.csv")
+MODEL = "gpt-4o-mini"
 MESSAGES: deque = deque()
 MESSAGES.append({"role": "system", "content": utils.SYSTEM_PROMPT})
 MAX_HISTORY = 20
@@ -54,7 +55,7 @@ def call_llm(query: str) -> str:
         append_messages({"role": "user", "content": query})
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=MODEL,
             messages=list(MESSAGES),
             tools=utils.TOOLS,  # type: ignore
             tool_choice="auto",
@@ -88,12 +89,11 @@ def call_llm(query: str) -> str:
                 append_messages(tr)
 
             final_response = client.chat.completions.create(
-                model="gpt-4o",
+                model=MODEL,
                 messages=list(MESSAGES)
             )
             final_message = final_response.choices[0].message
             append_messages(final_message.model_dump(exclude_unset=False))
-
             reply: str = final_message.content or "Looks like the backend didn't send anything. Can you check the parameters again?"
             return reply
 
@@ -109,12 +109,14 @@ app = App()
 async def handle_greeting(ctx: ActivityContext[MessageActivity]) -> None:
     """Handle greeting messages."""
     print(f"User entered: {ctx.activity.text}")
+    print("Responding with: Hello! How can I assist you today?")
     await ctx.send("Hello! How can I assist you today?")
 
 @app.on_message_pattern(re.compile(r"Who are you|Who is this"))
 async def handle_inquiry(ctx: ActivityContext[MessageActivity]) -> None:
     """Handle greeting messages."""
     print(f"User entered: {ctx.activity.text}")
+    print("Responding with: Hey! I'm BrowsEZ. Need something? Just ask—I'll make it easy.")
     await ctx.send("Hey! I'm BrowsEZ. Need something? Just ask—I'll make it easy.")
 
 @app.on_message
@@ -123,8 +125,10 @@ async def handle_message(ctx: ActivityContext[MessageActivity]):
     await ctx.reply(TypingActivityInput())
     query = ctx.activity.text
     print(f"User entered: {query}")
+    print("Calling LLM...")
     response = call_llm(query)
-    await ctx.send(response)
+    cost_table = utils.get_cost(MESSAGES, DATAFRAME, MODEL)
+    await ctx.send(response+f"\n\n\n\n"+cost_table)
 
 if __name__ == "__main__":
     asyncio.run(app.start())

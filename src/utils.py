@@ -6,7 +6,81 @@ from tools import check_bank_balance, \
                     neft_status, \
                     rtgs_status, \
                     transaction_status_tl, \
-                    upi_status_ml
+                    upi_status_ml, \
+                    query_metabase
+import pandas as pd
+from collections import deque
+
+USD_TO_INR = 91.0
+PRICE_UNIT = 1_000_000
+
+import tiktoken
+
+
+def get_tokens(string: str, model: str) -> int:
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except KeyError:
+        # fallback tokenizer
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+    tokens = encoding.encode(string)
+    return len(tokens)
+
+def extract_text(msg) -> str:
+    """Safely extracts string content from various message formats."""
+    content = ""
+    if isinstance(msg, dict):
+        content = msg.get("content")
+    elif hasattr(msg, "content"):
+        content = msg.content
+    
+    # 2. Handle cases where content is None (common in tool-calling assistant messages)
+    if content is None:
+        if isinstance(msg, dict) and msg.get("tool_calls"):
+            return json.dumps(msg.get("tool_calls"))
+        return ""
+        
+    return str(content)
+
+def get_cost(messages: deque, dataframe: pd.DataFrame, model: str) -> str:
+    # 1. Validation
+    required_cols = {"Model", "Input", "Output"}
+    if not required_cols.issubset(dataframe.columns):
+        missing = required_cols - set(dataframe.columns)
+        raise ValueError(f"Missing columns: {missing}")
+
+    # 2. Extract pricing
+    row = dataframe.loc[dataframe["Model"] == model]
+    if row.empty:
+        return ""
+
+    input_price_per_unit = row["Input"].iloc[0]
+    output_price_per_unit = row["Output"].iloc[0]
+
+    # Convert deque to a list once for indexing
+    msg_list = list(messages)
+    
+    # Extract text from all messages except the last one
+    history_text = " ".join([extract_text(m) for m in msg_list[:-1]])
+    
+    # Extract text from the very last message
+    last_msg_text = extract_text(msg_list[-1]) if msg_list else ""
+
+    # Token calculation
+    input_tokens = get_tokens(history_text, model) 
+    output_tokens = get_tokens(last_msg_text, model)
+
+    # Math
+    input_cost = (input_tokens / PRICE_UNIT) * input_price_per_unit * USD_TO_INR
+    output_cost = (output_tokens / PRICE_UNIT) * output_price_per_unit * USD_TO_INR
+    total_cost = input_cost + output_cost
+
+    return (f"""
+| Input Tokens | Output Tokens | Total Cost (INR) |
+| :----------- | :------------ | :--------------- |
+| {input_tokens:,} | {output_tokens:,} | ₹{total_cost:.4f} |
+""")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 def _now_ist() -> str:
@@ -146,6 +220,93 @@ TOOLS = [
                 "additionalProperties": False
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_metabase",
+            "description": "This tool allows users to write natural language queries and retrieve data from Metabase (Sury-VA). The tool converts the user input to an SQL command which is queried over the database mentioned by the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": """ 
+Convert the natural language questions into SQL queries. A database schema will be provided to you. Follow these rules strictly:
+- Use only the tables and columns explicitly provided in the schema. If the user asks for information that does not exist in the schema, return a SQL query that uses only the available fields in the most reasonable way.
+- Do not invent new tables, columns, or relationships. Use only what is defined.
+- When joins are required, infer the relationship based on foreign-key naming conventions or explicit schema instructions. If ambiguity exists, choose the relationship that is most consistent with typical relational database design.
+- Fully qualify columns when necessary to avoid ambiguity.
+- Never return placeholders. For example, do not return "table_name" or "column_name". Always return actual schema elements.
+- DONT USE UNNECESSARILY COMPLEX COMMANDS. RESPOND WITH THE MOST UNDERSTANABLE AND USER READABLE COMMANDS.
+- Use time format as follows: BETWEEN '2026-02-01 00:00:00' AND '2026-02-19 23:59:59'
+- Use the schema provided below for your query:
+    CREATE TABLE apiaccess (
+    apiaccessid INT UNSIGNED PRIMARY KEY, entityname VARCHAR, entitykey VARCHAR, entityenckey VARCHAR, apiaccess VARCHAR, updatedon DATETIME, insertedon DATETIME, isactive INT, nodeip VARCHAR
+    );
+    CREATE TABLE apimaster (
+    apimasterid INT UNSIGNED PRIMARY KEY, apikey VARCHAR, apiname VARCHAR, apiurl VARCHAR, apidesc VARCHAR, apitype INT, isactive INT, insertedon DATETIME, nodeip VARCHAR
+    );
+    CREATE TABLE balmaster (
+    balmasterid INT UNSIGNED PRIMARY KEY, balkey VARCHAR, baldesc VARCHAR, isactive INT, nodeip VARCHAR
+    );
+    CREATE TABLE corporate (
+    corporateid INT UNSIGNED PRIMARY KEY, corporateunqid VARCHAR, corporatename VARCHAR, corporatecode VARCHAR, corporateacdtls VARCHAR, insertedon DATETIME, isactive INT, nodeip VARCHAR
+    );
+    CREATE TABLE corporatedtls (
+    corporatedtlsid INT UNSIGNED PRIMARY KEY, corporateid INT, corpdtlskey VARCHAR, corpdtlskey1 VARCHAR, corpdtlskey2 VARCHAR, corpdtlstype INT, isactive INT, insertedon DATETIME, nodeip VARCHAR
+    );
+    CREATE TABLE corporateva (
+    corporatevaid INT UNSIGNED PRIMARY KEY, corporateid INT, corporatevaname VARCHAR, vano VARCHAR, vanomasked VARCHAR, vanohash VARCHAR, extacid VARCHAR, sourcechk INT, isactive INT, insertedon DATETIME, nodeip VARCHAR
+    );
+    CREATE TABLE corporatevabal (
+    corporatevabalid INT UNSIGNED PRIMARY KEY, corporateid INT, corporatevaid INT, balmasterkey VARCHAR, balance DECIMAL, createdon DATETIME, updatedon DATETIME, nodeip VARCHAR
+    );
+    CREATE TABLE corporatevadtls (
+    corporatevadtlsid INT UNSIGNED PRIMARY KEY, corporatevaid INT, dtls1 VARCHAR, dtls2 VARCHAR, dtlskey VARCHAR, dtlstype INT, isactive INT, insertedon DATETIME, updatedon DATETIME, nodeip VARCHAR
+    );
+    CREATE TABLE corporatevaledger (
+    corporatevaledgerid INT UNSIGNED PRIMARY KEY, corporatevaid INT, refno VARCHAR, tprefno VARCHAR, bankrefno VARCHAR, narration VARCHAR, opebal DECIMAL, amount DECIMAL, clobal DECIMAL, dctype INT, optype INT, channel INT, insertedon DATETIME, nodeip VARCHAR, payeedtls VARCHAR, status VARCHAR, txninfo VARCHAR
+    );
+        In the Corporatevaledger table:
+            For the column "dctype":
+            - Numeric value 1 represents "Payout"
+            - Numeric value 2 represents "Payin"
+            For the column "optype":
+            - Numeric value 1 represents "Top-up (credit into a VA)"
+            - Numeric value 2 represents "Debit (Payout from a VA)"
+            - Numeric value 3 represents "Reversal (Reversal back to a VA)"
+            For the column "channel":
+            - Numeric value 1 represents "IMPS"
+            - Numeric value 2 represents "NEFT"
+            - Numeric value 3 represents "RTGS"
+            - Numeric value 4 represents "UPI"
+
+    CREATE TABLE mwtsysconfig (
+    mwtsysconfigid INT UNSIGNED PRIMARY KEY, mwtsyskeyname VARCHAR, mwtsyskeyvalue VARCHAR, isactive INT, nodeip VARCHAR, insertedon DATETIME
+    );
+    CREATE TABLE sysaudit (
+    sysauditid INT UNSIGNED PRIMARY KEY, sysid VARCHAR, cid INT, cvaid INT, bankprocess VARCHAR, sysprocess VARCHAR, areq VARCHAR, arsp VARCHAR, astatus INT, createdon DATETIME PRIMARY KEY, nodeip VARCHAR
+    );
+    CREATE TABLE txnmapping (
+    id INT PRIMARY KEY, refno VARCHAR, bankrefno VARCHAR
+    );
+    CREATE TABLE vacgen (
+    vacgenid INT PRIMARY KEY, corporatecode VARCHAR, seqno INT
+    );
+    CREATE TABLE waudit (
+    wauditid INT UNSIGNED PRIMARY KEY, wentityid INT, servicename VARCHAR, wrefno VARCHAR, narration VARCHAR, tprefno VARCHAR, opebal DECIMAL, amount DECIMAL, charge DECIMAL, tds DECIMAL, gst DECIMAL, clobal DECIMAL, optype INT, dctype INT, insertedat DATETIME, issettled INT, settleddat DATETIME, nodeip VARCHAR
+    );
+    CREATE TABLE wentity (
+    wentitiyid INT UNSIGNED PRIMARY KEY, bankifsc VARCHAR, entityname VARCHAR, balance DECIMAL, createdat DATETIME, updatedat DATETIME, isactive INT, nodeip VARCHAR
+    );
+"""
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": False
+            }
+        }
     }
 ]
 
@@ -157,6 +318,7 @@ TOOL_REGISTRY = {
     "rtgs_status_check": rtgs_status,
     "transaction_status_tl": transaction_status_tl,
     "upi_status_ml": upi_status_ml,
+    "query_metabase": query_metabase,
 }
 
 SYSTEM_PROMPT = """
@@ -168,15 +330,16 @@ You can execute tools, retrieve enterprise data, and trigger workflows across cl
 * Extract required parameters from the conversation
 * Execute the most appropriate action
 * Respond clearly with the result or next step
+* Dont truncate any information. Show as much information you can under 20,000 characters.
 
 Always prioritize accuracy, security, and minimal back-and-forth. Act like a proactive, reliable enterprise assistant — not just a chatbot.
 """
 
 def maintain_context_limit(
     data,
-    max_total_chars: int = 2500,
-    max_field_value: int = 1500,
-    max_rows: int = 200,
+    max_total_chars: int = 20000,
+    max_field_value: int = 10000,
+    max_rows: int = 50,
 ) -> str:
     ''' 
     1. Takes in data (string or API response) and converts to JSON.
@@ -192,6 +355,7 @@ def maintain_context_limit(
         else:
             json_data = data
     except Exception:
+        print("An error occurred in processing the API response")
         return "An error occurred in processing the API response"
 
     # Ensure we are always working with a list for max_rows logic
@@ -220,12 +384,11 @@ def maintain_context_limit(
             return obj
 
     items = truncate_values(items)
-
-    # Step 4 — Convert to JSON string and check total char limit
     output = json.dumps(items, indent=2)
 
     if len(output) > max_total_chars:
         output = output[:max_total_chars] + "\n... output truncated ..."
 
+    print(f"Reduced data of {len(data)} to {len(output)}")
     return output
 

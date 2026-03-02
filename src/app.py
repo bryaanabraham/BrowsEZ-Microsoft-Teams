@@ -3,9 +3,7 @@ import re
 import json
 import os
 from collections import deque
-from typing import Any, Dict, Union
-
-from azure.identity import ManagedIdentityCredential
+from typing import Any, Dict
 from microsoft.teams.api import MessageActivity, TypingActivityInput
 from microsoft.teams.apps import ActivityContext, App
 from openai import OpenAI
@@ -38,10 +36,6 @@ def append_messages(turn: dict) -> None:
         MESSAGES.extend(recent)
 
 client = OpenAI(api_key=os.getenv("OPEN_AI_API_KEY"))
-
-
-from typing import Optional, cast
-import json
 
 def call_llm(query: str) -> str:
     try:

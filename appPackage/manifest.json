@@ -51,9 +51,17 @@
             ]
         }
     ],
+    
     "composeExtensions": [],
     "configurableTabs": [],
-    "staticTabs": [],
+    "staticTabs": [
+        {
+            "entityId": "playground",
+            "name": "Playground",
+            "contentUrl": "https://brows-ez-client.vercel.app",
+            "scopes": ["personal"]
+        }
+    ],
     "permissions": [
         "identity",
         "messageTeamMembers"

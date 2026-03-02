@@ -1,70 +1,72 @@
 {
-    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.24/MicrosoftTeams.schema.json",
-    "manifestVersion": "1.24",
-    "version": "1.0.0",
-    "id": "${{TEAMS_APP_ID}}",
-    "developer": {
-        "name": "My App, Inc.",
-        "websiteUrl": "https://www.example.com",
-        "privacyUrl": "https://www.example.com/privacy",
-        "termsOfUseUrl": "https://www.example.com/termofuse"
-    },
-    "icons": {
-        "color": "BrowsEZ_192.png",
-        "outline": "BrowsEZ_32.jpg"
-    },
-    "name": {
-        "short": "BrowsEZ${{APP_NAME_SUFFIX}}",
-        "full": "BrowsEZ: Your AI teammate"
-    },
-    "description": {
-        "short": "Your AI teammate for tools and enterprise queries.",
-        "full": "BrowsEZ acts like a digital teammate inside Microsoft Teams, allowing users to execute tools, retrieve enterprise data, and trigger workflows through simple conversation. Designed to integrate with your existing cloud or on-prem infrastructure, Browsez provides intelligent responses without requiring any change to your current environment."
-    },
-    "accentColor": "#FFFFFF",
-    "bots": [
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.24/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.24",
+  "version": "1.0.2",
+  "id": "${{TEAMS_APP_ID}}",
+  "developer": {
+    "name": "My App, Inc.",
+    "websiteUrl": "https://www.example.com",
+    "privacyUrl": "https://www.example.com/privacy",
+    "termsOfUseUrl": "https://www.example.com/termofuse"
+  },
+  "icons": {
+    "color": "BrowsEZ_192.png",
+    "outline": "BrowsEZ_32.jpg"
+  },
+  "name": {
+    "short": "BrowsEZ${{APP_NAME_SUFFIX}}",
+    "full": "BrowsEZ: Your AI teammate"
+  },
+  "description": {
+    "short": "Your AI teammate for tools and enterprise queries.",
+    "full": "BrowsEZ acts like a digital teammate inside Microsoft Teams, allowing users to execute tools, retrieve enterprise data, and trigger workflows through simple conversation. Designed to integrate with your existing cloud or on-prem infrastructure, Browsez provides intelligent responses without requiring any change to your current environment."
+  },
+  "accentColor": "#FFFFFF",
+  "bots": [
+    {
+      "botId": "${{BOT_ID}}",
+      "scopes": ["personal", "team", "groupChat"],
+      "isNotificationOnly": false,
+      "supportsCalling": false,
+      "supportsVideo": false,
+      "supportsFiles": false,
+      "commandLists": [
         {
-        "botId": "${{BOT_ID}}",
-        "scopes": ["personal", "team", "groupChat"],
-        "isNotificationOnly": false,
-        "supportsCalling": false,
-        "supportsVideo": false,
-        "supportsFiles": false,
-        "commandLists": [
-                {
-                  "scopes": ["personal", "team", "groupChat"],
-                  "commands": [
-                      {
-                          "title": "Hi",
-                          "description": "Say hi to the bot."
-                      },
-                      {
-                          "title": "Who are you?",
-                          "description": "Ask About me"
-                      },
-                      {
-                        "title": "What's my bank balance?",
-                        "description": "Ask me something"
-                      }
-                  ]
-                }
-            ]
+          "scopes": ["personal", "team", "groupChat"],
+          "commands": [
+            {
+              "title": "Hi",
+              "description": "Say hi to the bot."
+            },
+            {
+              "title": "Who are you?",
+              "description": "Ask About me"
+            },
+            {
+              "title": "What's my bank balance?",
+              "description": "Ask me something"
+            }
+          ]
         }
-    ],
-    
-    "composeExtensions": [],
-    "configurableTabs": [],
-    "staticTabs": [
-        {
-            "entityId": "playground",
-            "name": "Playground",
-            "contentUrl": "https://brows-ez-client.vercel.app",
-            "scopes": ["personal"]
-        }
-    ],
-    "permissions": [
-        "identity",
-        "messageTeamMembers"
-    ],
-    "validDomains": []
+      ]
+    }
+  ],
+  "composeExtensions": [],
+  "configurableTabs": [],
+  "staticTabs": [
+    {
+      "entityId": "brows-ez-personal-tab",
+      "name": "BrowsEZ",
+      "contentUrl": "https://brows-ez-client.vercel.app",
+      "websiteUrl": "https://brows-ez-client.vercel.app",
+      "scopes": ["personal"]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "brows-ez-client.vercel.app"
+  ]
 }
